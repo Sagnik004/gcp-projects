@@ -1,7 +1,3 @@
-.venv
-.env
-/**/resources/*.json
-
 HELP.md
 .gradle
 build/

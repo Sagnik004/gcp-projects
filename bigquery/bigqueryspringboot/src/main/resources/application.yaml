@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: bigqueryspringboot
+  cloud:
+    gcp:
+      project-id: ${GCP_PROJECT_ID:your-project-id}
+      bigquery:
+        datasetName: ${BIGQUERY_DATASET_ID}
+      credentials:
+        location: ${GOOGLE_APPLICATION_CREDENTIALS:classpath:service-account.json}
+
+bigquery:
+  dataset:
+    name: ${BIGQUERY_DATASET:your_dataset}
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.sagnikchakraborty: INFO
+    com.google.cloud.bigquery: INFO
+    com.google.auth: INFO
