@@ -1,11 +1,11 @@
 package com.sagnikchakraborty.dto;
 
+import com.sagnikchakraborty.model.SalesRecord;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * DTO for BigQuery query responses
@@ -19,7 +19,7 @@ public class BigQueryResponseDTO {
 
     private String message;
 
-    private List<Map<String, Object>> data;
+    private List<SalesRecord> data;
 
     private Long totalRows;
 

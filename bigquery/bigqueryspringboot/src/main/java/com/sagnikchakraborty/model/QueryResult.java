@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
-import java.util.Map;
 
 @Data
 @Builder
@@ -14,7 +13,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class QueryResult {
 
-    private List<Map<String, Object>> rows;
+    private List<SalesRecord> rows;
 
     private long totalRows;
 

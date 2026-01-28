@@ -1,17 +1,19 @@
 package com.sagnikchakraborty.service;
 
-import com.google.cloud.bigquery.*;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.FieldValueList;
+import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.TableResult;
 import com.sagnikchakraborty.config.BigQueryProperties;
 import com.sagnikchakraborty.dto.BigQueryResponseDTO;
 import com.sagnikchakraborty.exception.BigQueryException;
-import com.sagnikchakraborty.model.QueryResult;
+import com.sagnikchakraborty.model.SalesRecord;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -24,123 +26,26 @@ public class BigQueryService {
     private final BigQuery bigQuery;
     private final BigQueryProperties properties;
 
-    @Value("${spring.cloud.gcp.bigquery.datasetName}")
-    private String datasetName;
-
     /**
-     * Read data from a BigQuery table
+     * Read data from a BigQuery view with no filters applied
+     * @param viewName BigQuery view name
      * @return BigQueryResponseDTO
      */
-    public BigQueryResponseDTO readTable(String tableName) {
-        try {
-            long startTime = System.currentTimeMillis();
-
-            String sql = buildSelectQuery(tableName);
-            log.info("Executing query: {}", sql);
-
-            QueryJobConfiguration queryConfig = QueryJobConfiguration.newBuilder(sql).build();
-            Job queryJob = bigQuery.create(JobInfo.newBuilder(queryConfig).build());
-
-            // Wait for the query to complete...
-            queryJob = queryJob.waitFor();
-
-            if (queryJob == null) {
-                throw new RuntimeException("Job no longer exists");
-            } else if (queryJob.getStatus().getError() != null) {
-                throw new RuntimeException(queryJob.getStatus().getError().toString());
-            }
-
-            TableResult result = queryJob.getQueryResults();
-            List<Map<String, Object>> rows = new ArrayList<>();
-
-            for (FieldValueList row : result.iterateAll()) {
-                Map<String, Object> rowMap = new HashMap<>();
-                for (Field field : result.getSchema().getFields()) {
-                    FieldValue fieldValue = row.get(field.getName());
-                    rowMap.put(field.getName(), getFieldValue(fieldValue));
-                }
-                rows.add(rowMap);
-            }
-
-            long executionTime = System.currentTimeMillis() - startTime;
-
-            return new BigQueryResponseDTO(
-                    true,
-                    "Data retrieved successfully",
-                    rows,
-                    result.getTotalRows(),
-                    queryJob.getJobId().getJob(),
-                    executionTime);
-
-        } catch (Exception e) {
-            log.error("Error reading from table: {}", e.getMessage(), e);
-            return new BigQueryResponseDTO(
-                    false,
-                    "Error: " + e.getMessage(),
-                    null,
-                    0L,
-                    null,
-                    0L);
-        }
+    public BigQueryResponseDTO readFromView(String viewName) {
+        return readFromView(viewName, null);
     }
 
     /**
      * Read data from a BigQuery view
+     * @param viewName BigQuery view name
+     * @param filters Filters to apply in the query
      * @return BigQueryResponseDTO
      */
-    public BigQueryResponseDTO readView(String viewName) {
-        // Views are queried the same way as tables in BigQuery
-        return readTable(viewName);
-    }
-
-    private String buildSelectQuery(String tableName) {
-        StringBuilder sql = new StringBuilder();
-
-        sql.append("SELECT * FROM `")
-                .append(datasetName)
-                .append(".")
-                .append(tableName)
-                .append("` LIMIT 100");
-
-        return sql.toString();
-    }
-
-    private Object getFieldValue(FieldValue fieldValue) {
-        if (fieldValue.isNull()) {
-            return null;
-        }
-
-        switch (fieldValue.getAttribute()) {
-            case PRIMITIVE:
-                return fieldValue.getValue();
-            case REPEATED:
-                List<Object> list = new ArrayList<>();
-                for (FieldValue item : fieldValue.getRepeatedValue()) {
-                    list.add(getFieldValue(item));
-                }
-                return list;
-            case RECORD:
-                Map<String, Object> record = new HashMap<>();
-                for (FieldValue subField : fieldValue.getRecordValue()) {
-                    // This is not a production level approach, we would need the schema
-                    // to get the field names properly
-                    record.put(subField.toString(), getFieldValue(subField));
-                }
-                return record;
-            default:
-                return fieldValue.getStringValue();
-        }
-    }
-
-    public QueryResult readFromView() {
-        return readFromView(null);
-    }
-
-    public QueryResult readFromView(Map<String, Object> filters) {
+    public BigQueryResponseDTO readFromView(String viewName, Map<String, Object> filters) {
         long startTime = System.currentTimeMillis();
 
         try {
-            String query = buildQuery(filters);
+            String query = buildQuery(viewName, filters);
             log.info("Executing BigQuery: {}", query);
 
             QueryJobConfiguration queryConfig = QueryJobConfiguration
@@ -148,8 +53,23 @@ public class BigQueryService {
                     .setUseLegacySql(false)
                     .build();
 
-            TableResult result = bigQuery.query(queryConfig);
-            log.info(String.valueOf(result));
+            // Fire the query...
+            TableResult tableResult = bigQuery.query(queryConfig);
+
+            // Parse result data and return response...
+            List<SalesRecord> rows = parseResults(tableResult);
+            long executionTime = System.currentTimeMillis() - startTime;
+            log.info("Query executed successfully. Rows: {}, Time: {}ms",
+                    rows.size(), executionTime);
+
+            return new BigQueryResponseDTO(
+                    true,
+                    "Data retrieved successfully",
+                    rows,
+                    tableResult.getTotalRows(),
+                    tableResult.getJobId() == null ? null : tableResult.getJobId().getJob(),
+                    executionTime
+            );
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BigQueryException("Query was interrupted", e);
@@ -157,16 +77,14 @@ public class BigQueryService {
             log.error("Error executing BigQuery", e);
             throw new BigQueryException("Failed to read from BigQuery view", e);
         }
-
-        return null;
     }
 
-    private String buildQuery(Map<String, Object> filters) {
+    private String buildQuery(String tableName, Map<String, Object> filters) {
         StringBuilder query = new StringBuilder();
         query.append(String.format("SELECT * FROM `%s.%s.%s`",
                 bigQuery.getOptions().getProjectId(),
                 properties.getDatasetId(),
-                properties.getViewName()));
+                tableName));
 
         if (filters != null && !filters.isEmpty()) {
             query.append("WHERE ");
@@ -183,38 +101,46 @@ public class BigQueryService {
         return query.toString();
     }
 
-//    private List<Map<String, Object>> parseResults(TableResult result) {
-//        return StreamSupport.stream(result.iterateAll().spliterator(), false)
-//                .map()
-//    }
+    private List<SalesRecord> parseResults(TableResult tableResult) {
+        List<SalesRecord> tableRows = new ArrayList<>();
 
-//    private Map<String, Object> rowToMap(FieldValueList row) {
-//        Map<String, Object> map = new LinkedHashMap<>();
-//        row.forEach(field -> {
-//            String fieldName = field.getName();
-//        });
-//        return map;
-//    }
+        for (FieldValueList row : tableResult.iterateAll()) {
+            SalesRecord record = new SalesRecord();
 
-//    private Object extractFieldValue(FieldValue field) {
-//        if (field.isNull()) {
-//            return null;
-//        }
-//
-//        FieldValue.Attribute attribute = field.getAttribute();
-//
-//        return switch (attribute) {
-//            case PRIMITIVE -> field.getValue();
-//            case REPEATED -> field.getRepeatedValue().stream()
-//                    .map(this::extractFieldValue)
-//                    .collect(Collectors.toList());
-//            case RECORD -> {
-//                FieldValueList recordvalue = field.getRecordValue();
-//                Map<String, Object> recordMap = new LinkedHashMap<>();
-//                Schema recordSchema = recordvalue.getSchema();
-//            }
-//        };
-//    }
+            record.setRegion(
+                    row.get("region").isNull() ? null : row.get("region").getStringValue());
+            record.setCountry(
+                    row.get("country").isNull() ? null : row.get("country").getStringValue());
+            record.setItemType(
+                    row.get("item_type").isNull() ? null : row.get("item_type").getStringValue());
+            record.setSalesChannel(
+                    row.get("sales_channel").isNull() ? null : row.get("sales_channel").getStringValue());
+            record.setOrderPriority(
+                    row.get("order_priority").isNull() ? null : row.get("order_priority").getStringValue());
+            record.setOrderDate(
+                    row.get("order_date").isNull() ? null : LocalDateTime.parse(row.get("order_date").getStringValue()));
+            record.setOrderId(
+                    row.get("order_id").isNull() ? null : row.get("order_id").getNumericValue().intValue());
+            record.setShipDate(
+                    row.get("ship_date").isNull() ? null : LocalDateTime.parse(row.get("ship_date").getStringValue()));
+            record.setUnitsSold(
+                    row.get("units_sold").isNull() ? null : row.get("units_sold").getNumericValue().intValue());
+            record.setUnitPrice(
+                    row.get("unit_price").isNull()? null : row.get("unit_price").getNumericValue().floatValue());
+            record.setUnitCost(
+                    row.get("unit_cost").isNull() ? null : row.get("unit_cost").getNumericValue().floatValue());
+            record.setTotalRevenue(
+                    row.get("total_revenue").isNull() ? null : row.get("total_revenue").getNumericValue().floatValue());
+            record.setTotalCost(
+                    row.get("total_cost").isNull() ? null : row.get("total_cost").getNumericValue().floatValue());
+            record.setTotalProfit(
+                    row.get("total_profit").isNull() ? null : row.get("total_profit").getNumericValue().floatValue());
+
+            tableRows.add(record);
+        }
+
+        return tableRows;
+    }
 
     private String sanitizeValue(Object value) {
         if (value == null) {

@@ -10,8 +10,10 @@ spring:
         location: ${GOOGLE_APPLICATION_CREDENTIALS:classpath:service-account.json}
 
 bigquery:
-  dataset:
-    name: ${BIGQUERY_DATASET:your_dataset}
+  dataset-id: ${BIGQUERY_DATASET_ID}
+  view-name: ${BIGQUERY_VIEW_NAME}
+  query-timeout-seconds: 60
+  max-results: 5
 
 server:
   port: 8080

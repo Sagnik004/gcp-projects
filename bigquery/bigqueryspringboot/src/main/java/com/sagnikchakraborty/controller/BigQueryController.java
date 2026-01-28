@@ -21,7 +21,7 @@ public class BigQueryController {
 
     @GetMapping("/view/{viewName}")
     public ResponseEntity<BigQueryResponseDTO> readView(@PathVariable String viewName) {
-        BigQueryResponseDTO response = bigQueryService.readView(viewName);
+        BigQueryResponseDTO response = bigQueryService.readFromView(viewName);
         return response.isSuccess()
                 ? ResponseEntity.ok(response)
                 : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
