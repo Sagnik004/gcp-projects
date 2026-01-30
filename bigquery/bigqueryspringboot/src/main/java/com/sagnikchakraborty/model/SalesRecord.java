@@ -5,7 +5,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-public class SalesRecord {
+public class SalesRecord implements IBQQueryRecord{
 
     private String region;
     private String country;

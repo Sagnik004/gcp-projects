@@ -20,8 +20,16 @@ public class BigQueryController {
     private final BigQueryService bigQueryService;
 
     @GetMapping("/view/{viewName}")
-    public ResponseEntity<BigQueryResponseDTO> readView(@PathVariable String viewName) {
+    public ResponseEntity<BigQueryResponseDTO> readFromView(@PathVariable String viewName) {
         BigQueryResponseDTO response = bigQueryService.readFromView(viewName);
+        return response.isSuccess()
+                ? ResponseEntity.ok(response)
+                : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    }
+
+    @GetMapping("/table/{tableName}")
+    public ResponseEntity<BigQueryResponseDTO> readFromTable(@PathVariable String tableName) {
+        BigQueryResponseDTO response = bigQueryService.readFromTable(tableName);
         return response.isSuccess()
                 ? ResponseEntity.ok(response)
                 : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);

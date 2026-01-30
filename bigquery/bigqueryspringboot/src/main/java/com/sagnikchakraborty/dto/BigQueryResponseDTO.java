@@ -1,6 +1,6 @@
 package com.sagnikchakraborty.dto;
 
-import com.sagnikchakraborty.model.SalesRecord;
+import com.sagnikchakraborty.model.IBQQueryRecord;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -19,7 +19,7 @@ public class BigQueryResponseDTO {
 
     private String message;
 
-    private List<SalesRecord> data;
+    private List<? extends IBQQueryRecord> data;
 
     private Long totalRows;
 

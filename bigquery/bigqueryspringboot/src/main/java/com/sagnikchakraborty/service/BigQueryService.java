@@ -7,11 +7,13 @@ import com.google.cloud.bigquery.TableResult;
 import com.sagnikchakraborty.config.BigQueryProperties;
 import com.sagnikchakraborty.dto.BigQueryResponseDTO;
 import com.sagnikchakraborty.exception.BigQueryException;
+import com.sagnikchakraborty.model.BankTransactionRecord;
 import com.sagnikchakraborty.model.SalesRecord;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +48,7 @@ public class BigQueryService {
 
         try {
             String query = buildQuery(viewName, filters);
-            log.info("Executing BigQuery: {}", query);
+            log.info("Executing BigQuery View: {}", query);
 
             QueryJobConfiguration queryConfig = QueryJobConfiguration
                     .newBuilder(query)
@@ -57,7 +59,60 @@ public class BigQueryService {
             TableResult tableResult = bigQuery.query(queryConfig);
 
             // Parse result data and return response...
-            List<SalesRecord> rows = parseResults(tableResult);
+            List<SalesRecord> rows = parseViewResults(tableResult);
+            long executionTime = System.currentTimeMillis() - startTime;
+            log.info("Query executed successfully. Rows: {}, Time: {}ms",
+                    rows.size(), executionTime);
+
+            return new BigQueryResponseDTO(
+                    true,
+                    "Data retrieved successfully",
+                    rows,
+                    tableResult.getTotalRows(),
+                    tableResult.getJobId() == null ? null : tableResult.getJobId().getJob(),
+                    executionTime
+            );
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BigQueryException("Query was interrupted", e);
+        } catch (Exception e) {
+            log.error("Error executing BigQuery", e);
+            throw new BigQueryException("Failed to read from BigQuery view", e);
+        }
+    }
+
+    /**
+     * Read data from a BigQuery table with no filters applied
+     * @param tableName BigQuery table name
+     * @return BigQueryResponseDTO
+     */
+    public BigQueryResponseDTO readFromTable(String tableName) {
+        return readFromTable(tableName, null);
+    }
+
+    /**
+     * Read data from a BigQuery table
+     * @param tableName BigQuery table name
+     * @param filters Filters to apply in the query
+     * @return BigQueryResponseDTO
+     */
+    public BigQueryResponseDTO readFromTable(String tableName, Map<String, Object> filters) {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            String query = buildQuery(tableName, filters);
+            log.info("Executing BigQuery Table: {}", query);
+
+            QueryJobConfiguration queryConfig = QueryJobConfiguration
+                    .newBuilder(query)
+                    .setUseLegacySql(false)
+                    .build();
+
+            // Fire the query...
+            TableResult tableResult = bigQuery.query(queryConfig);
+
+            // Parse result data and return response...
+            List<BankTransactionRecord> rows = parseTableResults(tableResult);
             long executionTime = System.currentTimeMillis() - startTime;
             log.info("Query executed successfully. Rows: {}, Time: {}ms",
                     rows.size(), executionTime);
@@ -101,7 +156,7 @@ public class BigQueryService {
         return query.toString();
     }
 
-    private List<SalesRecord> parseResults(TableResult tableResult) {
+    private List<SalesRecord> parseViewResults(TableResult tableResult) {
         List<SalesRecord> tableRows = new ArrayList<>();
 
         for (FieldValueList row : tableResult.iterateAll()) {
@@ -135,6 +190,29 @@ public class BigQueryService {
                     row.get("total_cost").isNull() ? null : row.get("total_cost").getNumericValue().floatValue());
             record.setTotalProfit(
                     row.get("total_profit").isNull() ? null : row.get("total_profit").getNumericValue().floatValue());
+
+            tableRows.add(record);
+        }
+
+        return tableRows;
+    }
+
+    private List<BankTransactionRecord> parseTableResults(TableResult tableResult) {
+        List<BankTransactionRecord> tableRows = new ArrayList<>();
+
+        for (FieldValueList row : tableResult.iterateAll()) {
+            BankTransactionRecord record = new BankTransactionRecord();
+
+            record.setDate(
+                    row.get("date").isNull() ? null : LocalDate.parse(row.get("date").getStringValue()).atStartOfDay());
+            record.setDescription(
+                    row.get("description").isNull() ? null : row.get("description").getStringValue());
+            record.setDeposits(
+                    row.get("deposit").isNull() ? null : row.get("deposit").getNumericValue().floatValue());
+            record.setWithdrawal(
+                    row.get("withdrawal").isNull() ? null : row.get("withdrawal").getNumericValue().floatValue());
+            record.setBalance(
+                    row.get("balance").isNull() ? null : row.get("balance").getNumericValue().floatValue());
 
             tableRows.add(record);
         }
