@@ -5,6 +5,7 @@ import com.google.cloud.bigquery.FieldValueList;
 import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.cloud.bigquery.TableResult;
 import com.sagnikchakraborty.config.BigQueryProperties;
+import com.sagnikchakraborty.dto.BigQueryInsertRequestDTO;
 import com.sagnikchakraborty.dto.BigQueryResponseDTO;
 import com.sagnikchakraborty.exception.BigQueryException;
 import com.sagnikchakraborty.model.BankTransactionRecord;
@@ -225,5 +226,108 @@ public class BigQueryService {
             return "NULL";
         }
         return value.toString().replace("'", "\\'");
+    }
+
+    /**
+     * Insert a single SalesRecord into a BigQuery table using SQL INSERT query.
+     * This method is simpler than streaming insert and suitable for single record inserts.
+     * @param tableName BigQuery table name
+     * @param requestDTO Single record to insert
+     * @return BigQueryResponseDTO with insert results
+     */
+    public BigQueryResponseDTO insertIntoTable(String tableName, BigQueryInsertRequestDTO requestDTO) {
+        long startTime = System.currentTimeMillis();
+        try {
+            if (requestDTO == null) {
+                return new BigQueryResponseDTO(
+                        false,
+                        "No record provided to insert",
+                        null,
+                        0L,
+                        null,
+                        0L);
+            }
+
+            // Build the INSERT SQL query
+            String insertQuery = buildInsertQuery(tableName, requestDTO);
+            log.info("Executing INSERT query for table: {}", tableName);
+
+            QueryJobConfiguration queryConfig = QueryJobConfiguration
+                    .newBuilder(insertQuery)
+                    .setUseLegacySql(false)
+                    .build();
+
+            // Execute the insert query
+            TableResult tableResult = bigQuery.query(queryConfig);
+            long executionTime = System.currentTimeMillis() - startTime;
+
+            log.info("Record inserted successfully into {} in {}ms", tableName, executionTime);
+            return new BigQueryResponseDTO(
+                    true,
+                    "Record inserted successfully",
+                    null,
+                    1L,
+                    tableResult.getJobId() == null ? null : tableResult.getJobId().getJob(),
+                    executionTime);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Insert operation interrupted", e);
+            throw new BigQueryException("Insert operation was interrupted", e);
+        } catch (Exception e) {
+            log.error("Error inserting into BigQuery", e);
+            throw new BigQueryException("Failed to insert into BigQuery table", e);
+        }
+    }
+
+    /**
+     * Build an INSERT SQL query for the given DTO.
+     * @param tableName BigQuery table name
+     * @param dto the data transfer object
+     * @return INSERT SQL query string
+     */
+    private String buildInsertQuery(String tableName, BigQueryInsertRequestDTO dto) {
+        String fullTableName = String.format("`%s.%s.%s`",
+                bigQuery.getOptions().getProjectId(),
+                properties.getDatasetId(),
+                tableName);
+
+        return String.format(
+                "INSERT INTO %s (region, country, item_type, sales_channel, order_priority, order_date, order_id, " +
+                "ship_date, units_sold, unit_price, unit_cost, total_revenue, total_cost, total_profit) " +
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                fullTableName,
+                formatSQLValue(dto.getRegion()),
+                formatSQLValue(dto.getCountry()),
+                formatSQLValue(dto.getItemType()),
+                formatSQLValue(dto.getSalesChannel()),
+                formatSQLValue(dto.getOrderPriority()),
+                formatSQLValue(dto.getOrderDate() == null ? null : dto.getOrderDate().toString()),
+                formatSQLValue(dto.getOrderId()),
+                formatSQLValue(dto.getShipDate() == null ? null : dto.getShipDate().toString()),
+                formatSQLValue(dto.getUnitsSold()),
+                formatSQLValue(dto.getUnitPrice()),
+                formatSQLValue(dto.getUnitCost()),
+                formatSQLValue(dto.getTotalRevenue()),
+                formatSQLValue(dto.getTotalCost()),
+                formatSQLValue(dto.getTotalProfit())
+        );
+    }
+
+    /**
+     * Format a value for SQL query (handle nulls, strings, and numbers).
+     * @param value the value to format
+     * @return SQL formatted value
+     */
+    private String formatSQLValue(Object value) {
+        if (value == null) {
+            return "NULL";
+        }
+        if (value instanceof String stringValue) {
+            // Escape single quotes for SQL
+            return "'" + stringValue.replace("'", "\\'") + "'";
+        }
+        // Numbers and other types can be used directly
+        return value.toString();
     }
 }

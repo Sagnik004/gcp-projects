@@ -1,15 +1,13 @@
 package com.sagnikchakraborty.controller;
 
+import com.sagnikchakraborty.dto.BigQueryInsertRequestDTO;
 import com.sagnikchakraborty.dto.BigQueryResponseDTO;
 import com.sagnikchakraborty.service.BigQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @Slf4j
 @RestController
@@ -32,6 +30,15 @@ public class BigQueryController {
         BigQueryResponseDTO response = bigQueryService.readFromTable(tableName);
         return response.isSuccess()
                 ? ResponseEntity.ok(response)
+                : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    }
+
+    @PostMapping("/table/{tableName}")
+    public ResponseEntity<BigQueryResponseDTO> insertIntoTable(@PathVariable String tableName,
+                                                               @RequestBody BigQueryInsertRequestDTO requestDTO) {
+        BigQueryResponseDTO response = bigQueryService.insertIntoTable(tableName, requestDTO);
+        return response.isSuccess()
+                ? ResponseEntity.status(HttpStatus.CREATED).body(response)
                 : ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
     }
 }
